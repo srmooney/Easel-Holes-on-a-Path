@@ -7,7 +7,7 @@ var getSelectedVolumes = function(volumes, selectedVolumeIds){
   });
 }
 
-var getChain = function(selectedVolume){
+var getModel = function(selectedVolume){
   var model = meapi.importEaselShape(selectedVolume.shape);
   var m1 = makerjs.measure.modelExtents(model);
   if (selectedVolume.shape.width > m1.width) {
@@ -16,19 +16,46 @@ var getChain = function(selectedVolume){
   }
   makerjs.model.center(model, true, true);
   makerjs.model.moveRelative(model, [selectedVolume.shape.center.x, selectedVolume.shape.center.y]);
-  //console.log('model', model);
+  return model;
+}
+
+var getChain = function(selectedVolume){
+  var model = getModel(selectedVolume);
   var chain = makerjs.model.findSingleChain(model);
-  //chain.units = makerjs.unitType.Inch;
   return chain;
+}
+
+var getPoints = function(selectedVolume, repeatType, minimumSpacing, numberOfHoles){
+  var keyPoints = [];
+  var chain = getChain(selectedVolume);
+  if (chain){
+    var divisions = Math.floor(chain.pathLength / minimumSpacing);
+    var spacing = chain.pathLength / divisions;
+    if (repeatType === 'Number of holes'){
+        spacing = chain.pathLength / numberOfHoles;
+    }
+    keyPoints = makerjs.chain.toPoints(chain, spacing);
+  }
+  else {
+    // try to get from path?
+    var model = getModel(selectedVolume);
+    var path = model.models[0].paths.ShapeLine1;
+    makerjs.path.center(path, true, true);
+    makerjs.path.moveRelative(path, [selectedVolume.shape.center.x, selectedVolume.shape.center.y]);
+    var pathLength = makerjs.measure.modelPathLength(model);
+    var divisions = Math.floor(pathLength / minimumSpacing);
+    if (repeatType === 'Number of holes'){
+        divisions = numberOfHoles;
+    }
+    keyPoints = makerjs.path.toPoints(path, divisions);
+  }
+
+  return keyPoints;
 }
 
 // Define a properties array that returns array of objects representing
 // the accepted properties for your application
 var properties = function(projectSettings){
-  //console.log('projectSettings', projectSettings);
-  //var minStep = projectSettings.bitParams.bit.width * 3;
-  //var volume = getSelectedVolumes(projectSettings.volumes, projectSettings.selectedVolumeIds);
-  //var chain = getChain(volume);
   var bitSize = projectSettings.bitParams.bit.width;
   if (projectSettings.bitParams.bit.unit === 'mm') { bitSize /= 25.4; }
 
@@ -96,15 +123,17 @@ var executor = function(args, success, failure) {
   var selectedVolumes = getSelectedVolumes(args.volumes, args.selectedVolumeIds);
 
   selectedVolumes.forEach(function(selectedVolume){
-    var chain = getChain(selectedVolume);
-    var divisions = Math.floor(chain.pathLength / minimumSpacing);
-    var spacing = chain.pathLength / divisions;
+    //var chain = getChain(selectedVolume);
+    //var divisions = Math.floor(chain.pathLength / minimumSpacing);
+    //var spacing = chain.pathLength / divisions;
 
-    if (repeatType === 'Number of holes'){
-        spacing = chain.pathLength / numberOfHoles;
-    }
+    //if (repeatType === 'Number of holes'){
+    //    spacing = chain.pathLength / numberOfHoles;
+    //}
 
-    var keyPoints = makerjs.chain.toPoints(chain, spacing);
+    //var keyPoints = makerjs.chain.toPoints(chain, spacing);
+    var keyPoints = getPoints(selectedVolume, repeatType, minimumSpacing, numberOfHoles);
+    if (!keyPoints || keyPoints.length <= 0) { return; }
     var dots = new makerjs.models.Holes(size, keyPoints);
     for (var pathId in dots.paths) {
       var path = dots.paths[pathId];
@@ -129,6 +158,11 @@ var executor = function(args, success, failure) {
     }
   });
 
-	//console.log('newVolumes', newVolumes);
-	return success(newVolumes);
+  if (newVolumes.length > 0){
+    return success(newVolumes);
+  }
+  else {
+    return failure('Not able to find points');
+  }
+
 };
