@@ -1,11 +1,16 @@
 var makerjs = require('makerjs');
 var meapi = require('makerjs-easel-api');
 
+var repeatTypes = [
+  'Spacing',
+  'Number of holes'
+];
+
 var getSelectedVolumes = function(volumes, selectedVolumeIds){
   return volumes.filter(function(volume){
     return selectedVolumeIds.indexOf(volume.id) >= 0;
   });
-}
+};
 
 var getModel = function(selectedVolume){
   var model = meapi.importEaselShape(selectedVolume.shape);
@@ -17,21 +22,22 @@ var getModel = function(selectedVolume){
   makerjs.model.center(model, true, true);
   makerjs.model.moveRelative(model, [selectedVolume.shape.center.x, selectedVolume.shape.center.y]);
   return model;
-}
+};
 
 var getChain = function(selectedVolume){
   var model = getModel(selectedVolume);
   var chain = makerjs.model.findSingleChain(model);
   return chain;
-}
+};
 
 var getPoints = function(selectedVolume, repeatType, minimumSpacing, numberOfHoles){
   var keyPoints = [];
   var chain = getChain(selectedVolume);
+  var divisions;
   if (chain){
-    var divisions = Math.floor(chain.pathLength / minimumSpacing);
+    divisions = Math.floor(chain.pathLength / minimumSpacing);
     var spacing = chain.pathLength / divisions;
-    if (repeatType === 'Number of holes'){
+    if (repeatType === repeatTypes[1]){
         spacing = chain.pathLength / numberOfHoles;
     }
     keyPoints = makerjs.chain.toPoints(chain, spacing);
@@ -43,15 +49,15 @@ var getPoints = function(selectedVolume, repeatType, minimumSpacing, numberOfHol
     makerjs.path.center(path, true, true);
     makerjs.path.moveRelative(path, [selectedVolume.shape.center.x, selectedVolume.shape.center.y]);
     var pathLength = makerjs.measure.modelPathLength(model);
-    var divisions = Math.floor(pathLength / minimumSpacing);
-    if (repeatType === 'Number of holes'){
+    divisions = Math.floor(pathLength / minimumSpacing);
+    if (repeatType === repeatTypes[1]){
         divisions = numberOfHoles;
     }
     keyPoints = makerjs.path.toPoints(path, divisions);
   }
 
   return keyPoints;
-}
+};
 
 // Define a properties array that returns array of objects representing
 // the accepted properties for your application
@@ -60,7 +66,7 @@ var properties = function(projectSettings){
   if (projectSettings.bitParams.bit.unit === 'mm') { bitSize /= 25.4; }
 
   var minValue = bitSize * 3;
-  var bitValue = bitSize + .001;
+  var bitValue = bitSize + 0.001;
 
   var defaults = {
     'Hole Size': bitValue,
@@ -77,7 +83,7 @@ var properties = function(projectSettings){
   return [
     { type: 'text', id: 'Hole Size', value: defaults['Hole Size'] },
     { type: 'text', id: 'Depth', value: defaults['Depth'] },
-    { type: 'list', id: 'Repeat Type', value: 'Spacing', options: ['Spacing', 'Number of holes'] },
+    { type: 'list', id: 'Repeat Type', value: 'Spacing', options: repeatTypes },
     { type: 'text', id: 'Spacing', value: defaults['Spacing'] },
     { type: 'text', id: 'Number of holes', value: 4 }
   ];
@@ -99,17 +105,23 @@ var executor = function(args, success, failure) {
   if (size < bitSize) { return failure('Hole Size is too small for current bit'); }
   if (size == bitSize){ size += 0.001; }
 
-  var minimumSpacing = parseFloat(params['Spacing']);
-  if (isNaN(minimumSpacing) || minimumSpacing < 0){ return failure('Spacing is not valid'); }
-  if (minimumSpacing < bitSize){
-    //Show Error?
-    return failure('Spacing is not valid');
-  }
-
   var repeatType = params['Repeat Type'];
 
+  var minimumSpacing = parseFloat(params['Spacing']);
+  if (repeatType == repeatTypes[0]){
+    if (isNaN(minimumSpacing) || minimumSpacing < 0){ 
+      return failure('Spacing is not valid');
+    }
+    if (minimumSpacing < bitSize){
+      //Show Error?
+      return failure('Spacing is not valid');
+    }
+  }
+
   var numberOfHoles = parseInt(params['Number of holes']);
-  if (isNaN(numberOfHoles) || numberOfHoles < 0){ return failure('Number of holes is not valid'); }
+  if (repeatType == repeatTypes[1] && (isNaN(numberOfHoles) || numberOfHoles < 0)){ 
+    return failure('Number of holes is not valid');
+  }
 
   var depth = parseFloat(params['Depth']);
 
@@ -123,15 +135,6 @@ var executor = function(args, success, failure) {
   var selectedVolumes = getSelectedVolumes(args.volumes, args.selectedVolumeIds);
 
   selectedVolumes.forEach(function(selectedVolume){
-    //var chain = getChain(selectedVolume);
-    //var divisions = Math.floor(chain.pathLength / minimumSpacing);
-    //var spacing = chain.pathLength / divisions;
-
-    //if (repeatType === 'Number of holes'){
-    //    spacing = chain.pathLength / numberOfHoles;
-    //}
-
-    //var keyPoints = makerjs.chain.toPoints(chain, spacing);
     var keyPoints = getPoints(selectedVolume, repeatType, minimumSpacing, numberOfHoles);
     if (!keyPoints || keyPoints.length <= 0) { return; }
     var dots = new makerjs.models.Holes(size, keyPoints);
