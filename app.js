@@ -134,6 +134,10 @@ var executor = function(args, success, failure) {
   var newVolumes = [];
   var selectedVolumes = getSelectedVolumes(args.volumes, args.selectedVolumeIds);
 
+  if (selectedVolumes.filter(function(x){ return x.shape.type == 'text'; }).length > 0){
+    return failure('Please use the Xploder app on text first.'); 
+  }
+
   selectedVolumes.forEach(function(selectedVolume){
     var keyPoints = getPoints(selectedVolume, repeatType, minimumSpacing, numberOfHoles);
     if (!keyPoints || keyPoints.length <= 0) { return; }
