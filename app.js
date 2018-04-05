@@ -12,51 +12,90 @@ var getSelectedVolumes = function(volumes, selectedVolumeIds){
   });
 };
 
-var getModel = function(selectedVolume){
-  var model = meapi.importEaselShape(selectedVolume.shape);
-  var m1 = makerjs.measure.modelExtents(model);
-  if (selectedVolume.shape.width > m1.width) {
-    var scale = selectedVolume.shape.width / m1.width;
-    makerjs.model.scale(model, scale);
+var getModelsFromPoints = function(shape){
+  let models = [];
+  for (var x=0; x < shape.points.length; x++){
+    let testShape = JSON.parse(JSON.stringify(shape));
+    testShape.points.splice(x,1);
+    testShape.points.unshift(shape.points[x]);
+    let model = meapi.importEaselShape(testShape);
+    
+    var m1 = makerjs.measure.modelExtents(model);
+    if (m1.width > testShape.width) {
+      let scale = testShape.width / m1.width;
+      makerjs.model.scale(model, scale);
+    }
+    makerjs.model.center(model, true, true);
+    makerjs.model.moveRelative(model, [shape.center.x, shape.center.y]);
+    //Keep only the first model
+    model.models = { 0: model.models[0] };
+    models.push(model);
   }
-  makerjs.model.center(model, true, true);
-  makerjs.model.moveRelative(model, [selectedVolume.shape.center.x, selectedVolume.shape.center.y]);
-  return model;
+  return models;
+}
+
+var getModel = function(selectedVolume){
+  let models = [];
+  let shape = selectedVolume.shape;
+  if (shape.type == 'path' && shape.points.length > 1){
+    models = models.concat(getModelsFromPoints(shape));
+  }
+  else if (shape.type == 'text'){
+    models = models.concat(getModelsFromPoints(shape.fontPath));
+  }
+  else {
+    var model = meapi.importEaselShape(selectedVolume.shape);
+    var m1 = makerjs.measure.modelExtents(model);
+    if (selectedVolume.shape.width > m1.width) {
+      var scale = selectedVolume.shape.width / m1.width;
+      makerjs.model.scale(model, scale);
+    }
+    makerjs.model.center(model, true, true);
+    makerjs.model.moveRelative(model, [selectedVolume.shape.center.x, selectedVolume.shape.center.y]);
+    models.push(model);
+  }
+  return models;
 };
 
 var getChain = function(selectedVolume){
-  var model = getModel(selectedVolume);
-  var chain = makerjs.model.findSingleChain(model);
-  return chain;
+  var models = getModel(selectedVolume);
+  //console.log('getChain', models);
+  return models.map(function(model){
+    var chain = makerjs.model.findSingleChain(model);
+    return chain;
+  });
 };
 
 var getPoints = function(selectedVolume, repeatType, minimumSpacing, numberOfHoles){
-  var keyPoints = [];
-  var chain = getChain(selectedVolume);
-  var divisions;
-  if (chain){
-    divisions = Math.floor(chain.pathLength / minimumSpacing);
-    var spacing = chain.pathLength / divisions;
-    if (repeatType === repeatTypes[1]){
-        spacing = chain.pathLength / numberOfHoles;
+  var chains = getChain(selectedVolume);
+  //console.log('getPoints() chains', chains);
+  return chains.map(function(chain){
+    var keyPoints = [];
+    var divisions;
+    if (chain){
+      divisions = Math.floor(chain.pathLength / minimumSpacing);
+      var spacing = chain.pathLength / divisions;
+      if (repeatType === repeatTypes[1]){
+          spacing = chain.pathLength / numberOfHoles;
+      }
+      keyPoints = makerjs.chain.toPoints(chain, spacing);
     }
-    keyPoints = makerjs.chain.toPoints(chain, spacing);
-  }
-  else {
-    // try to get from path?
-    var model = getModel(selectedVolume);
-    var path = model.models[0].paths.ShapeLine1;
-    makerjs.path.center(path, true, true);
-    makerjs.path.moveRelative(path, [selectedVolume.shape.center.x, selectedVolume.shape.center.y]);
-    var pathLength = makerjs.measure.modelPathLength(model);
-    divisions = Math.floor(pathLength / minimumSpacing);
-    if (repeatType === repeatTypes[1]){
-        divisions = numberOfHoles;
+    else {
+      // try to get from path?
+      var model = getModel(selectedVolume);
+      var path = model.models[0].paths.ShapeLine1;
+      makerjs.path.center(path, true, true);
+      makerjs.path.moveRelative(path, [selectedVolume.shape.center.x, selectedVolume.shape.center.y]);
+      var pathLength = makerjs.measure.modelPathLength(model);
+      divisions = Math.floor(pathLength / minimumSpacing);
+      if (repeatType === repeatTypes[1]){
+          divisions = numberOfHoles;
+      }
+      keyPoints = makerjs.path.toPoints(path, divisions);
     }
-    keyPoints = makerjs.path.toPoints(path, divisions);
-  }
-
-  return keyPoints;
+  
+    return keyPoints;
+  });
 };
 
 // Define a properties array that returns array of objects representing
@@ -93,7 +132,7 @@ var properties = function(projectSettings){
 // and passes it to the provided success callback, or invokes the failure
 // callback if unable to do so
 var executor = function(args, success, failure) {
-  //console.log(args);
+  console.log(args);
   var params = args.params;
   var material = args.material;
 
@@ -134,36 +173,41 @@ var executor = function(args, success, failure) {
   var newVolumes = [];
   var selectedVolumes = getSelectedVolumes(args.volumes, args.selectedVolumeIds);
 
-  if (selectedVolumes.filter(function(x){ return x.shape.type == 'text'; }).length > 0){
-    return failure('Please use the Xploder app on text first.'); 
-  }
+  //if (selectedVolumes.filter(function(x){ return x.shape.type == 'text'; }).length > 0){
+  //  return failure('Please use the Xploder app on text first.'); 
+  //}
 
   selectedVolumes.forEach(function(selectedVolume){
-    var keyPoints = getPoints(selectedVolume, repeatType, minimumSpacing, numberOfHoles);
-    if (!keyPoints || keyPoints.length <= 0) { return; }
-    var dots = new makerjs.models.Holes(size, keyPoints);
-    for (var pathId in dots.paths) {
-      var path = dots.paths[pathId];
-      newVolumes.push({
-        shape: {
-          type: "ellipse",
-          center: {
-            x: path.origin[0],
-            y: path.origin[1]
+    var keyPoints1 = getPoints(selectedVolume, repeatType, minimumSpacing, numberOfHoles);
+    
+    keyPoints1.map(function(keyPoints){
+      if (!keyPoints || keyPoints.length <= 0) { return; }
+      var dots = new makerjs.models.Holes(size, keyPoints);
+      for (var pathId in dots.paths) {
+        var path = dots.paths[pathId];
+        newVolumes.push({
+          shape: {
+            type: "ellipse",
+            center: {
+              x: path.origin[0],
+              y: path.origin[1]
+            },
+            flipping: {},
+            width: path.radius * 2,
+            height: path.radius * 2,
+            rotation: 0
           },
-          flipping: {},
-          width: path.radius * 2,
-          height: path.radius * 2,
-          rotation: 0
-        },
-        cut: {
-          depth: depth,
-          type: 'fill',
-          tabPreference: false
-        }
-      });
-    }
+          cut: {
+            depth: depth,
+            type: 'fill',
+            tabPreference: false
+          }
+        });
+      };
+    });
   });
+  
+  //console.log('newVolumes', newVolumes);
 
   if (newVolumes.length > 0){
     return success(newVolumes);
