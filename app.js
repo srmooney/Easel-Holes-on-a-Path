@@ -124,7 +124,8 @@ var properties = function(projectSettings){
     { type: 'text', id: 'Depth', value: defaults['Depth'] },
     { type: 'list', id: 'Repeat Type', value: 'Spacing', options: repeatTypes },
     { type: 'text', id: 'Spacing', value: defaults['Spacing'] },
-    { type: 'text', id: 'Number of holes', value: 4 }
+    { type: 'text', id: 'Number of holes', value: 4 },
+    { type: 'boolean', id: 'Use Drill Points', value: false }
   ];
 };
 
@@ -132,10 +133,11 @@ var properties = function(projectSettings){
 // and passes it to the provided success callback, or invokes the failure
 // callback if unable to do so
 var executor = function(args, success, failure) {
-  console.log(args);
+  //console.log(args);
   var params = args.params;
   var material = args.material;
 
+  var useDrillPoints = params['Use Drill Points'];
   var bitSize = args.bitParams.bit.width;
   if (args.bitParams.bit.unit === 'mm') { bitSize /= 25.4; }
 
@@ -185,24 +187,47 @@ var executor = function(args, success, failure) {
       var dots = new makerjs.models.Holes(size, keyPoints);
       for (var pathId in dots.paths) {
         var path = dots.paths[pathId];
-        newVolumes.push({
-          shape: {
-            type: "ellipse",
-            center: {
-              x: path.origin[0],
-              y: path.origin[1]
+        if (useDrillPoints){
+          newVolumes.push({
+            shape: {
+                type: 'drill',
+                center: {
+                  x: path.origin[0],
+                  y: path.origin[1]
+                },
+                flipping: {},
+                width: bitSize,
+                height: bitSize,
+                rotation: 0
             },
-            flipping: {},
-            width: path.radius * 2,
-            height: path.radius * 2,
-            rotation: 0
-          },
-          cut: {
-            depth: depth,
-            type: 'fill',
-            tabPreference: false
-          }
-        });
+            cut: {
+               type: 'drill',
+               depth: depth,
+               outlineStyle: 'on-path',
+               tabPreference: false
+            }
+          });
+        }
+        else {
+          newVolumes.push({
+            shape: {
+              type: "ellipse",
+              center: {
+                x: path.origin[0],
+                y: path.origin[1]
+              },
+              flipping: {},
+              width: path.radius * 2,
+              height: path.radius * 2,
+              rotation: 0
+            },
+            cut: {
+              depth: depth,
+              type: 'fill',
+              tabPreference: false
+            }
+          });
+        }
       };
     });
   });
